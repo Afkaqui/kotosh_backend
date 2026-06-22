@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum VideoStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  ERROR
+}
+
+model Video {
+  id           String      @id @default(cuid())
+  filename     String
+  originalName String
+  path         String
+  mimeType     String
+  size         Int
+  duration     Float?
+  status       VideoStatus @default(PENDING)
+  uploadedAt   DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  analyses Analysis[]
+
+  @@map("videos")
+}
+
+model Analysis {
+  id              String      @id @default(cuid())
+  videoId         String
+  video           Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  status          VideoStatus @default(PENDING)
+  fps             Float?
+  totalFrames     Int?
+  processedFrames Int?
+  startedAt       DateTime    @default(now())
+  completedAt     DateTime?
+  errorMessage    String?
+  summary         Json?
+
+  detections AnimalDetection[]
+
+  @@map("analyses")
+}
+
+model AnimalDetection {
+  id             String   @id @default(cuid())
+  analysisId     String
+  analysis       Analysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  trackId        Int
+  label          String   @default("cow")
+  confidence     Float
+  eatingSeconds  Float    @default(0)
+  restingSeconds Float    @default(0)
+  movingSeconds  Float    @default(0)
+  totalSeconds   Float    @default(0)
+  behaviorLog    Json?
+
+  @@map("animal_detections")
+}
+
+model Animal {
+  id        String    @id @default(cuid())
+  name      String?
+  tag       String    @unique
+  breed     String?
+  birthDate DateTime?
+  sex       String?
+  notes     String?
+  photoUrl  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@map("animals")
+}

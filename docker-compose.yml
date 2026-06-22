@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kotosh-db
+    restart: unless-stopped
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_DB: kotosh
+      POSTGRES_USER: kotosh
+      POSTGRES_PASSWORD: kotosh_dev_2025
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

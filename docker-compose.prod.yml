@@ -1,0 +1,43 @@
+services:
+  kotosh-api:
+    build: .
+    container_name: kotosh_api
+    restart: always
+    ports:
+      - "3051:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+      - ML_SERVICE_URL=http://kotosh_ml:8000
+      - UPLOAD_DIR=/app/uploads
+      - MAX_FILE_SIZE=524288000
+      - PORT=3000
+    volumes:
+      - uploads:/app/uploads
+    networks:
+      - default
+      - postgresql_default
+    depends_on:
+      - kotosh-ml
+
+  kotosh-ml:
+    build: ./ml
+    container_name: kotosh_ml
+    restart: always
+    environment:
+      - ML_DETECTOR_MODEL_PATH=../models/detector_best.pt
+      - ML_CLASSIFIER_MODEL_PATH=../models/classifier_best.pt
+      - ML_CONFIDENCE_THRESHOLD=0.5
+      - ML_FRAME_SAMPLE_RATE=5
+      - ML_MAX_VIDEO_DURATION=600
+    volumes:
+      - uploads:/app/uploads
+    networks:
+      - default
+
+volumes:
+  uploads:
+
+networks:
+  postgresql_default:
+    external: true
