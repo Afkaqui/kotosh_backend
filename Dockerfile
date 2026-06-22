@@ -1,18 +1,18 @@
 FROM node:20-alpine AS base
 
-# Dependencies
+# Dependencies (prod only)
 FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
-RUN npm ci --omit=dev && npx prisma generate
+RUN npm install --omit=dev && npx prisma generate
 
 # Build
 FROM base AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma ./prisma/
-RUN npm ci
+RUN npm install
 COPY . .
 RUN npx prisma generate && npm run build
 
