@@ -46,9 +46,7 @@ async def lifespan(app: FastAPI):
     weights_dir = _resolve(settings.weights_dir)
 
     try:
-        detector = CowDetector(
-            _resolve(settings.detector_model_path), settings.confidence_threshold, weights_dir
-        )
+        detector = CowDetector(_resolve(settings.detector_model_path), settings.confidence_threshold)
     except Exception as e:  # noqa: BLE001
         print(f"Warning: failed to load detector: {e}")
         detector = None

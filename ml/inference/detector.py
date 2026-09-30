@@ -2,7 +2,7 @@
 
 import os
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 from ultralytics import YOLO
@@ -19,26 +19,16 @@ COCO_COW_CLASS_ID = 19
 
 
 class CowDetector:
-    """Custom model (models/detector_best.pt) if present, else COCO YOLOv8n filtered to cows."""
+    """Custom model (models/detector_best.pt) if present, else COCO YOLOv8n filtered to cows.
 
-    def __init__(self, model_path: str, confidence: float = 0.35, weights_dir: Optional[str] = None) -> None:
+    PyTorch is used here on purpose: on the VPS CPU it beat the ONNX export (166 vs 283 ms/frame).
+    """
+
+    def __init__(self, model_path: str, confidence: float = 0.35) -> None:
         self.confidence = confidence
-        self.use_coco_fallback = False
-
-        onnx_path = os.path.join(weights_dir, "yolov8n.onnx") if weights_dir else ""
-        if os.path.isfile(model_path):
-            self.model = YOLO(model_path)
-            self.source = model_path
-        elif onnx_path and os.path.isfile(onnx_path):
-            # Exported at build with imgsz=416 (fixed input shape).
-            self.model = YOLO(onnx_path, task="detect")
-            self.use_coco_fallback = True
-            self.source = onnx_path
-        else:
-            self.model = YOLO("yolov8n.pt")
-            self.use_coco_fallback = True
-            self.source = "yolov8n.pt"
-
+        self.use_coco_fallback = not os.path.isfile(model_path)
+        self.source = "yolov8n.pt (COCO)" if self.use_coco_fallback else model_path
+        self.model = YOLO("yolov8n.pt" if self.use_coco_fallback else model_path)
         print(f"Detector: {self.source}")
         self.loaded = True
 

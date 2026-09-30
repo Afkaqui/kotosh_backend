@@ -17,10 +17,12 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Export CLIP + YOLOv8n to ONNX at build time (~2x faster on the VPS CPU, no network at startup).
+# Bake weights into the image so startup never needs the network:
+# YOLOv8n for PyTorch, CLIP exported to ONNX (faster on the VPS CPU).
 COPY inference/prompts.py inference/prompts.py
 COPY export_models.py .
-RUN python -W ignore export_models.py /app/weights && rm -rf /app/.cache/hf
+RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')" && \
+    python -W ignore export_models.py /app/weights && rm -rf /app/.cache/hf
 
 COPY . .
 

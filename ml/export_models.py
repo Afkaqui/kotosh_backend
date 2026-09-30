@@ -1,6 +1,6 @@
-"""Build-time export of CLIP (visual encoder + prompt embeddings) and YOLOv8n to ONNX.
+"""Build-time export of the CLIP visual encoder to ONNX plus precomputed prompt embeddings.
 
-ONNX Runtime is ~2x faster than PyTorch on the VPS CPU (no AVX), and the
+ONNX Runtime runs CLIP ~1.6x faster than PyTorch on the VPS CPU (no AVX), and the
 runtime then needs neither open_clip nor the text encoder.
 """
 
@@ -77,14 +77,5 @@ def export_clip() -> None:
         raise SystemExit("CLIP ONNX export does not match PyTorch output")
 
 
-def export_yolo() -> None:
-    from ultralytics import YOLO
-
-    YOLO("yolov8n.pt").export(format="onnx", imgsz=416, dynamic=False, simplify=False)
-    os.replace("yolov8n.onnx", os.path.join(OUT, "yolov8n.onnx"))
-    print("YOLOv8n exported")
-
-
 if __name__ == "__main__":
     export_clip()
-    export_yolo()
