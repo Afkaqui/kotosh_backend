@@ -8,6 +8,8 @@ class Settings(BaseSettings):
 
     detector_model_path: str = "../models/detector_best.pt"
     classifier_model_path: str = "../models/classifier_best.pt"
+    # ONNX exports baked into the image by export_models.py.
+    weights_dir: str = "../weights"
     confidence_threshold: float = 0.35
     max_video_duration: int = 600
 
@@ -22,5 +24,7 @@ class Settings(BaseSettings):
 
     # Body-heights per second above which a cow is considered to be walking.
     moving_speed_threshold: float = 0.25
+    # Posture changes slowly: re-run CLIP on a stationary cow at most this often.
+    posture_interval_seconds: float = 3.0
     smoothing_window: int = 5
     min_track_samples: int = 3

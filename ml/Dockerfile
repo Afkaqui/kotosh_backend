@@ -9,6 +9,7 @@ RUN apt-get update && \
 ENV HF_HOME=/app/.cache/hf \
     YOLO_CONFIG_DIR=/app/.cache/ultralytics \
     PYTHONUNBUFFERED=1
+RUN mkdir -p /app/.cache/ultralytics
 
 # CPU-only torch: the VPS has no GPU, and the CUDA wheels add ~2 GB.
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
@@ -16,9 +17,10 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Bake model weights into the image so startup never needs the network.
-RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')" && \
-    python -c "import open_clip; open_clip.create_model_and_transforms('ViT-B-32-quickgelu', pretrained='openai')"
+# Export CLIP + YOLOv8n to ONNX at build time (~2x faster on the VPS CPU, no network at startup).
+COPY inference/prompts.py inference/prompts.py
+COPY export_models.py .
+RUN python -W ignore export_models.py /app/weights && rm -rf /app/.cache/hf
 
 COPY . .
 

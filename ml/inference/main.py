@@ -25,22 +25,41 @@ def _resolve(path: str) -> str:
     return os.path.abspath(os.path.join(os.path.dirname(__file__), path))
 
 
+def _configure_torch() -> None:
+    torch.set_num_threads(settings.torch_threads)
+    torch.backends.nnpack.set_flags(False)
+    try:
+        with open("/proc/cpuinfo") as f:
+            has_avx2 = "avx2" in f.read()
+    except OSError:
+        has_avx2 = True
+    if not has_avx2:
+        # oneDNN fails ("could not create a primitive") on virtual CPUs without AVX2.
+        torch.backends.mkldnn.enabled = False
+        print("CPU without AVX2: oneDNN disabled")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global detector, classifier
-    torch.set_num_threads(settings.torch_threads)
+    _configure_torch()
+    weights_dir = _resolve(settings.weights_dir)
 
     try:
-        detector = CowDetector(_resolve(settings.detector_model_path), settings.confidence_threshold)
+        detector = CowDetector(
+            _resolve(settings.detector_model_path), settings.confidence_threshold, weights_dir
+        )
     except Exception as e:  # noqa: BLE001
         print(f"Warning: failed to load detector: {e}")
         detector = None
 
     classifier = BehaviorClassifier(
         _resolve(settings.classifier_model_path),
+        weights_dir=weights_dir,
         use_clip=settings.use_clip,
         clip_model=settings.clip_model,
         clip_pretrained=settings.clip_pretrained,
+        threads=settings.torch_threads,
     )
 
     print("ML service ready.")

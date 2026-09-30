@@ -2,7 +2,7 @@
 
 import os
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 from ultralytics import YOLO
@@ -10,58 +10,51 @@ from ultralytics import YOLO
 
 @dataclass
 class Detection:
-    """A single object detection result."""
-
     bbox: List[float]  # [x1, y1, x2, y2]
     confidence: float
     class_id: int
 
 
-# COCO class ID for cow
 COCO_COW_CLASS_ID = 19
 
 
 class CowDetector:
-    """Wrapper around YOLOv8 for cow detection."""
+    """Custom model (models/detector_best.pt) if present, else COCO YOLOv8n filtered to cows."""
 
-    def __init__(self, model_path: str, confidence: float = 0.5) -> None:
+    def __init__(self, model_path: str, confidence: float = 0.35, weights_dir: Optional[str] = None) -> None:
         self.confidence = confidence
         self.use_coco_fallback = False
 
+        onnx_path = os.path.join(weights_dir, "yolov8n.onnx") if weights_dir else ""
         if os.path.isfile(model_path):
-            print(f"Loading custom detector model: {model_path}")
             self.model = YOLO(model_path)
+            self.source = model_path
+        elif onnx_path and os.path.isfile(onnx_path):
+            # Exported at build with imgsz=416 (fixed input shape).
+            self.model = YOLO(onnx_path, task="detect")
+            self.use_coco_fallback = True
+            self.source = onnx_path
         else:
-            print(f"Custom model not found at {model_path}, using pretrained YOLOv8n (COCO)")
             self.model = YOLO("yolov8n.pt")
             self.use_coco_fallback = True
+            self.source = "yolov8n.pt"
 
+        print(f"Detector: {self.source}")
         self.loaded = True
 
-    def detect(self, frame: np.ndarray, imgsz: int = 640) -> List[Detection]:
-        """Run detection on a frame and return cow detections."""
-        results = self.model(frame, conf=self.confidence, imgsz=imgsz, verbose=False)
+    def detect(self, frame: np.ndarray, imgsz: int = 416) -> List[Detection]:
+        classes = [COCO_COW_CLASS_ID] if self.use_coco_fallback else None
+        results = self.model(frame, conf=self.confidence, imgsz=imgsz, classes=classes, verbose=False)
 
         detections: List[Detection] = []
         for result in results:
             if result.boxes is None:
                 continue
-
             boxes = result.boxes
             for i in range(len(boxes)):
-                cls_id = int(boxes.cls[i].item())
-                conf = float(boxes.conf[i].item())
-                xyxy = boxes.xyxy[i].tolist()
-
-                if self.use_coco_fallback:
-                    if cls_id != COCO_COW_CLASS_ID:
-                        continue
-                    cls_id = 0
-
                 detections.append(Detection(
-                    bbox=xyxy,
-                    confidence=conf,
-                    class_id=cls_id,
+                    bbox=boxes.xyxy[i].tolist(),
+                    confidence=float(boxes.conf[i].item()),
+                    class_id=0 if self.use_coco_fallback else int(boxes.cls[i].item()),
                 ))
-
         return detections

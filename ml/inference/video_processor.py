@@ -51,6 +51,8 @@ class VideoProcessor:
             )
 
         self.tracker.reset()
+        # track_id -> (timestamp, label, confidence) of the last CLIP posture call
+        self._posture: Dict[int, Tuple[float, str, float]] = {}
         sample_rate = max(1, round(fps * self.settings.sample_interval_seconds))
 
         logs: Dict[int, List[BehaviorEntry]] = defaultdict(list)
@@ -139,6 +141,18 @@ class VideoProcessor:
                 ))
                 continue
 
+            cached = self._posture.get(td.track_id)
+            if (
+                speed is not None
+                and cached is not None
+                and cached[1] in STATIONARY_CLASSES
+                and t - cached[0] < self.settings.posture_interval_seconds
+            ):
+                logs[td.track_id].append(BehaviorEntry(
+                    frame=frame_idx, timestamp=round(t, 2), behavior=cached[1], confidence=cached[2],
+                ))
+                continue
+
             # Pad the crop so ground/feeder context is visible to the classifier.
             px, py = bw * 0.1, bh * 0.1
             cx1, cy1 = max(0, int(x1 - px)), max(0, int(y1 - py))
@@ -157,6 +171,7 @@ class VideoProcessor:
                 continue
             preds = self.classifier.classify_batch([p[2] for p in group], allowed=allowed)
             for (track_id, ts, _, _), (label, conf) in zip(group, preds):
+                self._posture[track_id] = (ts, label, round(conf, 3))
                 logs[track_id].append(BehaviorEntry(
                     frame=frame_idx, timestamp=round(ts, 2), behavior=label, confidence=round(conf, 3),
                 ))

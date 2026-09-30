@@ -1,9 +1,12 @@
 ultralytics>=8.3.0
 open_clip_torch>=2.24.0
+onnx>=1.16.0
+onnxruntime>=1.19.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
 python-multipart>=0.0.18
 opencv-python-headless>=4.10.0
+# numpy 2.x does not run on the VPS CPU (no AVX); keep 1.x.
 numpy>=1.26.0,<2.0
 pillow>=10.4.0
 pydantic>=2.10.0
