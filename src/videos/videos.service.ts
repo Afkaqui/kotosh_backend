@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { unlinkSync, existsSync } from 'fs';
@@ -8,6 +8,10 @@ export class VideosService {
   constructor(private prisma: PrismaService) {}
 
   async create(file: Express.Multer.File) {
+    if (!file.size) {
+      if (existsSync(file.path)) unlinkSync(file.path);
+      throw new BadRequestException('El archivo de video está vacío');
+    }
     return this.prisma.video.create({
       data: {
         filename: file.filename,
