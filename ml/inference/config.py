@@ -24,6 +24,10 @@ class Settings(BaseSettings):
 
     # Body-heights per second above which a cow is considered to be walking.
     moving_speed_threshold: float = 0.25
+    # A new detection must score at least this on the CLIP cattle-vs-background check.
+    verify_min_score: float = 0.5
+    # Stricter NMS than YOLO's default 0.7 merges double boxes on one animal.
+    nms_iou: float = 0.5
     # Posture changes slowly: re-run CLIP on a stationary cow at most this often.
     posture_interval_seconds: float = 3.0
     smoothing_window: int = 5

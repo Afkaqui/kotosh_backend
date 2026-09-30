@@ -12,7 +12,7 @@ from typing import List, Optional, Sequence, Tuple
 import cv2
 import numpy as np
 
-from inference.prompts import BEHAVIOR_CLASSES, PROMPTS
+from inference.prompts import BEHAVIOR_CLASSES, PROMPTS, VERIFY_PROMPTS
 
 
 class BehaviorClassifier:
@@ -60,6 +60,9 @@ class BehaviorClassifier:
         )
         self._text_feats = np.load(os.path.join(weights_dir, "clip_text_features.npy"))
         self._prompt_classes: List[str] = meta["classes"]
+        verify_path = os.path.join(weights_dir, "clip_verify_features.npy")
+        self._verify_feats = np.load(verify_path) if os.path.isfile(verify_path) else None
+        self._verify_classes: List[str] = meta.get("verify_classes", [])
         self._logit_scale = float(meta["logit_scale"])
         self._size = int(meta["size"])
         self._mean = np.array(meta["mean"], dtype=np.float32)
@@ -77,6 +80,10 @@ class BehaviorClassifier:
         with torch.no_grad():
             feats = model.encode_text(tokenizer(texts))
             self._text_feats = (feats / feats.norm(dim=-1, keepdim=True)).numpy()
+            vtexts = [p for ps in VERIFY_PROMPTS.values() for p in ps]
+            vfeats = model.encode_text(tokenizer(vtexts))
+            self._verify_feats = (vfeats / vfeats.norm(dim=-1, keepdim=True)).numpy()
+        self._verify_classes = [c for c, ps in VERIFY_PROMPTS.items() for _ in ps]
         self._torch, self._clip = torch, model
         self._logit_scale = float(model.logit_scale.exp().item())
         self._size = 224
@@ -109,21 +116,34 @@ class BehaviorClassifier:
             return [self._yolo_classify(c) for c in crops]
         return [self._heuristic_classify(c) for c in crops]
 
+    def _embed(self, crops: Sequence[np.ndarray]) -> np.ndarray:
+        batch = np.stack([self._preprocess(c) for c in crops]).astype(np.float32)
+        if self.engine == "onnxruntime":
+            return self._session.run(None, {"image": batch})[0]
+        with self._torch.no_grad():
+            e = self._clip.encode_image(self._torch.from_numpy(batch))
+            return (e / e.norm(dim=-1, keepdim=True)).numpy()
+
+    def _softmax(self, emb: np.ndarray, feats: np.ndarray) -> np.ndarray:
+        logits = self._logit_scale * emb @ feats.T
+        logits -= logits.max(axis=1, keepdims=True)
+        probs = np.exp(logits)
+        return probs / probs.sum(axis=1, keepdims=True)
+
+    def cow_scores(self, crops: Sequence[np.ndarray]) -> List[float]:
+        """Probability mass on cattle prompts vs. background/other-animal prompts (1.0 when unavailable)."""
+        if not crops:
+            return []
+        if self.mode != "clip-zero-shot" or getattr(self, "_verify_feats", None) is None:
+            return [1.0] * len(crops)
+        probs = self._softmax(self._embed(crops), self._verify_feats)
+        cow = np.array([c == "cow" for c in self._verify_classes])
+        return [float(row[cow].sum()) for row in probs]
+
     def _clip_classify(
         self, crops: Sequence[np.ndarray], allowed: Optional[Sequence[str]]
     ) -> List[Tuple[str, float]]:
-        batch = np.stack([self._preprocess(c) for c in crops]).astype(np.float32)
-        if self.engine == "onnxruntime":
-            emb = self._session.run(None, {"image": batch})[0]
-        else:
-            with self._torch.no_grad():
-                e = self._clip.encode_image(self._torch.from_numpy(batch))
-                emb = (e / e.norm(dim=-1, keepdim=True)).numpy()
-
-        logits = self._logit_scale * emb @ self._text_feats.T
-        logits -= logits.max(axis=1, keepdims=True)
-        probs = np.exp(logits)
-        probs /= probs.sum(axis=1, keepdims=True)
+        probs = self._softmax(self._embed(crops), self._text_feats)
 
         classes = list(allowed) if allowed else BEHAVIOR_CLASSES
         results: List[Tuple[str, float]] = []

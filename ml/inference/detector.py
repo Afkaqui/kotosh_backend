@@ -24,8 +24,9 @@ class CowDetector:
     PyTorch is used here on purpose: on the VPS CPU it beat the ONNX export (166 vs 283 ms/frame).
     """
 
-    def __init__(self, model_path: str, confidence: float = 0.35) -> None:
+    def __init__(self, model_path: str, confidence: float = 0.35, nms_iou: float = 0.5) -> None:
         self.confidence = confidence
+        self.nms_iou = nms_iou
         self.use_coco_fallback = not os.path.isfile(model_path)
         self.source = "yolov8n.pt (COCO)" if self.use_coco_fallback else model_path
         self.model = YOLO("yolov8n.pt" if self.use_coco_fallback else model_path)
@@ -34,7 +35,7 @@ class CowDetector:
 
     def detect(self, frame: np.ndarray, imgsz: int = 416) -> List[Detection]:
         classes = [COCO_COW_CLASS_ID] if self.use_coco_fallback else None
-        results = self.model(frame, conf=self.confidence, imgsz=imgsz, classes=classes, verbose=False)
+        results = self.model(frame, conf=self.confidence, iou=self.nms_iou, imgsz=imgsz, classes=classes, verbose=False)
 
         detections: List[Detection] = []
         for result in results:

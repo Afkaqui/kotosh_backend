@@ -12,7 +12,7 @@ import numpy as np
 import torch
 
 sys.path.insert(0, os.path.dirname(__file__))
-from inference.prompts import PROMPTS  # noqa: E402
+from inference.prompts import PROMPTS, VERIFY_PROMPTS  # noqa: E402
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "weights"
 CLIP_NAME, CLIP_PRETRAINED = "ViT-B-32-quickgelu", "openai"
@@ -28,18 +28,22 @@ def export_clip() -> None:
     model.eval()
     tokenizer = open_clip.get_tokenizer(CLIP_NAME)
 
-    classes, texts = [], []
-    for cls, prompts in PROMPTS.items():
-        for p in prompts:
-            classes.append(cls)
-            texts.append(p)
-    with torch.no_grad():
-        feats = model.encode_text(tokenizer(texts))
-        feats = feats / feats.norm(dim=-1, keepdim=True)
-    np.save(os.path.join(OUT, "clip_text_features.npy"), feats.numpy().astype(np.float32))
+    def encode(groups):
+        classes = [c for c, ps in groups.items() for _ in ps]
+        texts = [p for ps in groups.values() for p in ps]
+        with torch.no_grad():
+            feats = model.encode_text(tokenizer(texts))
+            feats = feats / feats.norm(dim=-1, keepdim=True)
+        return classes, feats.numpy().astype(np.float32)
+
+    classes, feats = encode(PROMPTS)
+    verify_classes, verify_feats = encode(VERIFY_PROMPTS)
+    np.save(os.path.join(OUT, "clip_text_features.npy"), feats)
+    np.save(os.path.join(OUT, "clip_verify_features.npy"), verify_feats)
     with open(os.path.join(OUT, "clip_meta.json"), "w") as f:
         json.dump({
             "classes": classes,
+            "verify_classes": verify_classes,
             "logit_scale": float(model.logit_scale.exp().item()),
             "mean": list(getattr(model.visual, "image_mean", None) or open_clip.OPENAI_DATASET_MEAN),
             "std": list(getattr(model.visual, "image_std", None) or open_clip.OPENAI_DATASET_STD),

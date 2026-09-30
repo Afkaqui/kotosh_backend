@@ -53,6 +53,8 @@ class VideoProcessor:
         self.tracker.reset()
         # track_id -> (timestamp, label, confidence) of the last CLIP posture call
         self._posture: Dict[int, Tuple[float, str, float]] = {}
+        # track_id -> (passed the CLIP cattle check, time of that check); rejected tracks are re-checked
+        self._verified: Dict[int, Tuple[bool, float]] = {}
         sample_rate = max(1, round(fps * self.settings.sample_interval_seconds))
 
         logs: Dict[int, List[BehaviorEntry]] = defaultdict(list)
@@ -113,6 +115,18 @@ class VideoProcessor:
         body = max((h + ref[3]) / 2, 1.0)
         return float(np.hypot(cx - ref[1], cy - ref[2]) / body / dt)
 
+    @staticmethod
+    def _crop(frame: np.ndarray, bbox: List[float]) -> Optional[np.ndarray]:
+        """Box padded by 10% so ground/feeder context is visible to CLIP."""
+        h, w = frame.shape[:2]
+        x1, y1, x2, y2 = bbox
+        px, py = (x2 - x1) * 0.1, (y2 - y1) * 0.1
+        cx1, cy1 = max(0, int(x1 - px)), max(0, int(y1 - py))
+        cx2, cy2 = min(w, int(x2 + px)), min(h, int(y2 + py))
+        if cx2 - cx1 < 8 or cy2 - cy1 < 8:
+            return None
+        return frame[cy1:cy2, cx1:cx2]
+
     def _process_frame(self, frame, frame_idx, fps, logs, confidences, history) -> None:
         resized, scale = self._resize_frame(frame)
         detections = self.detector.detect(resized, imgsz=self.settings.inference_resolution)
@@ -125,7 +139,21 @@ class VideoProcessor:
         t = frame_idx / fps
         pending: List[Tuple[int, float, np.ndarray, Optional[float]]] = []
 
+        recheck = self.settings.posture_interval_seconds
+        new = [
+            td for td in tracked
+            if td.track_id not in self._verified
+            or (not self._verified[td.track_id][0] and t - self._verified[td.track_id][1] >= recheck)
+        ]
+        crops = [self._crop(frame, td.bbox) for td in new]
+        checkable = [(td, c) for td, c in zip(new, crops) if c is not None]
+        scores = self.classifier.cow_scores([c for _, c in checkable])
+        for (td, _), score in zip(checkable, scores):
+            self._verified[td.track_id] = (score >= self.settings.verify_min_score, t)
+
         for td in tracked:
+            if not self._verified.get(td.track_id, (False, 0.0))[0]:
+                continue
             x1, y1, x2, y2 = td.bbox
             bw, bh = x2 - x1, y2 - y1
             if bw <= 2 or bh <= 2:
@@ -153,13 +181,10 @@ class VideoProcessor:
                 ))
                 continue
 
-            # Pad the crop so ground/feeder context is visible to the classifier.
-            px, py = bw * 0.1, bh * 0.1
-            cx1, cy1 = max(0, int(x1 - px)), max(0, int(y1 - py))
-            cx2, cy2 = min(w, int(x2 + px)), min(h, int(y2 + py))
-            if cx2 - cx1 < 8 or cy2 - cy1 < 8:
+            crop = self._crop(frame, td.bbox)
+            if crop is None:
                 continue
-            pending.append((td.track_id, t, frame[cy1:cy2, cx1:cx2], speed))
+            pending.append((td.track_id, t, crop, speed))
 
         if not pending:
             return

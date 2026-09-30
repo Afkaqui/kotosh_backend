@@ -22,3 +22,24 @@ PROMPTS: Dict[str, List[str]] = {
         "a photo of a cow running",
     ],
 }
+
+# Second-stage check of each new detection: YOLO's COCO "cow" class fires on reddish crop
+# plots on the hillsides around Kotosh, so a crop must look more like cattle than like these.
+VERIFY_PROMPTS: Dict[str, List[str]] = {
+    "cow": [
+        "a photo of a cow",
+        "a photo of cattle grazing",
+        "a photo of a calf",
+        "a photo of a cow lying down",
+    ],
+    "other": [
+        "a photo of a farm field",
+        "a photo of a hillside with crops",
+        "a photo of trees and bushes",
+        "a photo of a building",
+        "a photo of a person",
+        "a photo of a horse",
+        "a photo of a llama",
+        "a photo of a dog",
+    ],
+}
