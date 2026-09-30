@@ -37,6 +37,7 @@ export class VideosController {
   @ApiBody({ type: UploadVideoDto })
   @UseInterceptors(
     FileInterceptor('file', {
+      limits: { fileSize: 100 * 1024 * 1024 },
       storage: diskStorage({
         destination: './uploads',
         filename: (_req, file, cb) => {
@@ -50,8 +51,12 @@ export class VideosController {
     @UploadedFile(
       new ParseFilePipe({
         validators: [
-          new MaxFileSizeValidator({ maxSize: 524288000 }),
-          new FileTypeValidator({ fileType: /video\/(mp4|avi|quicktime|x-msvideo)/ }),
+          new MaxFileSizeValidator({ maxSize: 100 * 1024 * 1024 }),
+          // Disk storage leaves no in-memory buffer to sniff, so validate the declared mimetype.
+          new FileTypeValidator({
+            fileType: /video\/(mp4|avi|quicktime|x-msvideo)/,
+            skipMagicNumbersValidation: true,
+          }),
         ],
       }),
     )
