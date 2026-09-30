@@ -38,9 +38,9 @@ class CowDetector:
 
         self.loaded = True
 
-    def detect(self, frame: np.ndarray) -> List[Detection]:
+    def detect(self, frame: np.ndarray, imgsz: int = 640) -> List[Detection]:
         """Run detection on a frame and return cow detections."""
-        results = self.model(frame, conf=self.confidence, verbose=False)
+        results = self.model(frame, conf=self.confidence, imgsz=imgsz, verbose=False)
 
         detections: List[Detection] = []
         for result in results:

@@ -7,6 +7,7 @@ import {
   Query,
   UploadedFile,
   UseInterceptors,
+  UseGuards,
   ParseFilePipe,
   MaxFileSizeValidator,
   FileTypeValidator,
@@ -15,12 +16,17 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { ApiTags, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiConsumes, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 import { VideosService } from './videos.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { UploadVideoDto } from './dto/upload-video.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Roles, RolesGuard } from '../auth/guards/roles.guard';
+import { Role } from '@prisma/client';
 
 @ApiTags('Videos')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('videos')
 export class VideosController {
   constructor(private readonly videosService: VideosService) {}
@@ -67,7 +73,8 @@ export class VideosController {
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Eliminar video' })
+  @Roles(Role.ADMIN, Role.ENCARGADO)
+  @ApiOperation({ summary: 'Eliminar video (admin/encargado)' })
   remove(@Param('id') id: string) {
     return this.videosService.remove(id);
   }

@@ -1,5 +1,7 @@
-import { IsString, IsOptional, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsIn, IsNumber, Min, Max } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+export const ANIMAL_STATUSES = ['activo', 'en_tratamiento', 'vendido', 'baja'] as const;
 
 export class CreateAnimalDto {
   @ApiProperty({ example: 'B-001' })
@@ -30,4 +32,16 @@ export class CreateAnimalDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ enum: ANIMAL_STATUSES, default: 'activo' })
+  @IsOptional()
+  @IsIn(ANIMAL_STATUSES)
+  status?: string;
+
+  @ApiPropertyOptional({ example: 420, description: 'Peso inicial en kg; crea el primer registro de pesaje' })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(2000)
+  weight?: number;
 }

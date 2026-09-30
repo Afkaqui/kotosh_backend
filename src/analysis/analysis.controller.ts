@@ -1,9 +1,19 @@
-import { Controller, Get, Post, Param, Query } from '@nestjs/common';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { Controller, Get, Post, Patch, Param, Query, Body, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { IsOptional, IsString } from 'class-validator';
 import { AnalysisService } from './analysis.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+
+class AssignDetectionDto {
+  @IsOptional()
+  @IsString()
+  animalId?: string | null;
+}
 
 @ApiTags('Analysis')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller()
 export class AnalysisController {
   constructor(private readonly analysisService: AnalysisService) {}
@@ -24,5 +34,11 @@ export class AnalysisController {
   @ApiOperation({ summary: 'Obtener análisis por ID' })
   findOne(@Param('id') id: string) {
     return this.analysisService.findOne(id);
+  }
+
+  @Patch('detections/:id/animal')
+  @ApiOperation({ summary: 'Asignar una detección (track) a un animal registrado' })
+  assign(@Param('id') id: string, @Body() dto: AssignDetectionDto) {
+    return this.analysisService.assignDetection(id, dto.animalId || null);
   }
 }

@@ -20,5 +20,6 @@ export interface MlAnalysisResponse {
   fps: number;
   total_frames: number;
   processed_frames: number;
+  classifier_mode?: string;
   animals: MlAnimalResult[];
 }

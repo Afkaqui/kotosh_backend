@@ -8,6 +8,8 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=${DATABASE_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
       - ML_SERVICE_URL=http://kotosh_ml:8000
       - UPLOAD_DIR=/app/uploads
       - MAX_FILE_SIZE=524288000
@@ -24,19 +26,24 @@ services:
     build: ./ml
     container_name: kotosh_ml
     restart: always
+    # Bounded so video analysis never starves the other services on the VPS.
+    cpus: 4
+    mem_limit: 6g
     environment:
-      - ML_DETECTOR_MODEL_PATH=../models/detector_best.pt
-      - ML_CLASSIFIER_MODEL_PATH=../models/classifier_best.pt
-      - ML_CONFIDENCE_THRESHOLD=0.5
-      - ML_FRAME_SAMPLE_RATE=5
+      - ML_CONFIDENCE_THRESHOLD=0.35
+      - ML_SAMPLE_INTERVAL_SECONDS=0.5
+      - ML_INFERENCE_RESOLUTION=416
+      - ML_TORCH_THREADS=4
       - ML_MAX_VIDEO_DURATION=600
     volumes:
       - uploads:/app/uploads
+      - ml_models:/app/models
     networks:
       - default
 
 volumes:
   uploads:
+  ml_models:
 
 networks:
   postgresql_default:

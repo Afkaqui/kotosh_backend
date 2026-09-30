@@ -1,11 +1,11 @@
 """FastAPI inference service for cow detection and behavior analysis."""
 
 import os
-import sys
+import threading
 from contextlib import asynccontextmanager
 
+import torch
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 
 from inference.classifier import BehaviorClassifier
 from inference.config import Settings
@@ -17,109 +17,74 @@ from inference.video_processor import VideoProcessor
 settings = Settings()
 detector: CowDetector | None = None
 classifier: BehaviorClassifier | None = None
+# One analysis at a time keeps CPU usage bounded on the shared VPS.
+analysis_lock = threading.Lock()
+
+
+def _resolve(path: str) -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), path))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load ML models on startup."""
     global detector, classifier
+    torch.set_num_threads(settings.torch_threads)
 
-    det_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), settings.detector_model_path)
-    )
-    cls_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), settings.classifier_model_path)
-    )
-
-    print(f"Loading detector from: {det_path}")
     try:
-        detector = CowDetector(det_path, settings.confidence_threshold)
-    except Exception as e:
+        detector = CowDetector(_resolve(settings.detector_model_path), settings.confidence_threshold)
+    except Exception as e:  # noqa: BLE001
         print(f"Warning: failed to load detector: {e}")
         detector = None
 
-    print(f"Loading classifier from: {cls_path}")
-    try:
-        classifier = BehaviorClassifier(cls_path)
-    except Exception as e:
-        print(f"Warning: failed to load classifier: {e}")
-        classifier = None
+    classifier = BehaviorClassifier(
+        _resolve(settings.classifier_model_path),
+        use_clip=settings.use_clip,
+        clip_model=settings.clip_model,
+        clip_pretrained=settings.clip_pretrained,
+    )
 
     print("ML service ready.")
     yield
-    print("Shutting down ML service.")
 
 
 app = FastAPI(
     title="KotoshTech ML Service",
     description="Cow detection and behavior analysis API",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health_check() -> HealthResponse:
-    """Return the health status of the ML service."""
+def health_check() -> HealthResponse:
     return HealthResponse(
         status="ok" if detector is not None else "degraded",
         detector_loaded=detector is not None and detector.loaded,
         classifier_loaded=classifier is not None and classifier.loaded,
+        classifier_mode=classifier.mode if classifier else "none",
     )
 
 
 @app.post("/analyze-video", response_model=AnalysisResponse)
-async def analyze_video(request: AnalysisRequest) -> AnalysisResponse:
-    """Analyze a video file for cow detection and behavior classification."""
-    if detector is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Detector model is not loaded. Service is not ready.",
-        )
+def analyze_video(request: AnalysisRequest) -> AnalysisResponse:
+    if detector is None or classifier is None:
+        raise HTTPException(status_code=503, detail="Models are not loaded. Service is not ready.")
 
-    if classifier is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Classifier model is not loaded. Service is not ready.",
-        )
-
-    video_path = request.video_path
-    if not os.path.isabs(video_path):
-        video_path = os.path.abspath(video_path)
-
+    video_path = os.path.abspath(request.video_path)
     if not os.path.isfile(video_path):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Video file not found: {video_path}",
-        )
+        raise HTTPException(status_code=404, detail=f"Video file not found: {video_path}")
 
-    tracker = SimpleIOUTracker()
-    processor = VideoProcessor(detector, classifier, tracker, settings)
-
-    try:
-        result = processor.process(video_path)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    return result
+    processor = VideoProcessor(detector, classifier, SimpleIOUTracker(), settings)
+    with analysis_lock:
+        try:
+            return processor.process(video_path)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except RuntimeError as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(
-        "inference.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-    )
+    uvicorn.run("inference.main:app", host="0.0.0.0", port=8000)

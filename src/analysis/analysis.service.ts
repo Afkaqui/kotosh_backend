@@ -61,16 +61,15 @@ export class AnalysisService {
         behaviorLog: animal.behavior_log as unknown as object,
       }));
 
+      const counted = mlResult.animals.filter((a) => a.total_seconds > 0);
       const totalAnimals = mlResult.animals.length;
-      const avgEatingPct = totalAnimals > 0
-        ? mlResult.animals.reduce((s, a) => s + (a.eating_seconds / a.total_seconds) * 100, 0) / totalAnimals
-        : 0;
-      const avgRestingPct = totalAnimals > 0
-        ? mlResult.animals.reduce((s, a) => s + (a.resting_seconds / a.total_seconds) * 100, 0) / totalAnimals
-        : 0;
-      const avgMovingPct = totalAnimals > 0
-        ? mlResult.animals.reduce((s, a) => s + (a.moving_seconds / a.total_seconds) * 100, 0) / totalAnimals
-        : 0;
+      const avgPct = (key: 'eating_seconds' | 'resting_seconds' | 'moving_seconds') =>
+        counted.length > 0
+          ? counted.reduce((s, a) => s + (a[key] / a.total_seconds) * 100, 0) / counted.length
+          : 0;
+      const avgEatingPct = avgPct('eating_seconds');
+      const avgRestingPct = avgPct('resting_seconds');
+      const avgMovingPct = avgPct('moving_seconds');
 
       await this.prisma.analysis.update({
         where: { id: analysisId },
@@ -86,6 +85,7 @@ export class AnalysisService {
             avgRestingPct: Math.round(avgRestingPct * 10) / 10,
             avgMovingPct: Math.round(avgMovingPct * 10) / 10,
             totalDurationSeconds: mlResult.total_frames / (mlResult.fps || 1),
+            classifierMode: mlResult.classifier_mode ?? 'unknown',
           },
           detections: { create: detectionData },
         },
@@ -139,10 +139,27 @@ export class AnalysisService {
       where: { id },
       include: {
         video: { select: { id: true, originalName: true, filename: true } },
-        detections: { orderBy: { trackId: 'asc' } },
+        detections: {
+          orderBy: { trackId: 'asc' },
+          include: { animal: { select: { id: true, tag: true, name: true } } },
+        },
       },
     });
     if (!analysis) throw new NotFoundException('Análisis no encontrado');
     return analysis;
+  }
+
+  async assignDetection(detectionId: string, animalId: string | null) {
+    const detection = await this.prisma.animalDetection.findUnique({ where: { id: detectionId } });
+    if (!detection) throw new NotFoundException('Detección no encontrada');
+    if (animalId) {
+      const animal = await this.prisma.animal.findUnique({ where: { id: animalId } });
+      if (!animal) throw new NotFoundException('Animal no encontrado');
+    }
+    return this.prisma.animalDetection.update({
+      where: { id: detectionId },
+      data: { animalId },
+      include: { animal: { select: { id: true, tag: true, name: true } } },
+    });
   }
 }

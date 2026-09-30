@@ -37,6 +37,7 @@ class AnalysisResponse(BaseModel):
     fps: float
     total_frames: int
     processed_frames: int
+    classifier_mode: str
     animals: list[AnimalResult]
 
 
@@ -46,3 +47,4 @@ class HealthResponse(BaseModel):
     status: str
     detector_loaded: bool
     classifier_loaded: bool
+    classifier_mode: str

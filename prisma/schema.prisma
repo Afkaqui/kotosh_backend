@@ -7,6 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  ADMIN
+  ENCARGADO
+  OPERARIO
+}
+
 enum VideoStatus {
   PENDING
   PROCESSING
@@ -61,7 +67,10 @@ model AnimalDetection {
   movingSeconds  Float    @default(0)
   totalSeconds   Float    @default(0)
   behaviorLog    Json?
+  animalId       String?
+  animal         Animal?  @relation(fields: [animalId], references: [id], onDelete: SetNull)
 
+  @@index([animalId])
   @@map("animal_detections")
 }
 
@@ -74,8 +83,38 @@ model Animal {
   sex       String?
   notes     String?
   photoUrl  String?
+  weight    Float?
+  status    String?   @default("activo")
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  weightRecords WeightRecord[]
+  detections    AnimalDetection[]
+
   @@map("animals")
+}
+
+model WeightRecord {
+  id       String   @id @default(cuid())
+  animalId String
+  animal   Animal   @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  weight   Float
+  date     DateTime @default(now())
+  notes    String?
+
+  @@index([animalId, date])
+  @@map("weight_records")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(OPERARIO)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
 }

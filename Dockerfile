@@ -1,4 +1,5 @@
 FROM node:20-alpine AS base
+RUN apk add --no-cache openssl
 
 # Dependencies (prod only)
 FROM base AS deps
@@ -33,4 +34,4 @@ RUN mkdir -p /app/uploads && chown nestjs:nestjs /app/uploads
 
 USER nestjs
 EXPOSE 3000
-CMD ["node", "dist/main"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]

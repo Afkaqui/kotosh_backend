@@ -1,69 +1,142 @@
-"""Cow behavior classification using YOLOv8-cls."""
+"""Cow posture/behavior classification.
+
+Priority: trained YOLOv8-cls model (models/classifier_best.pt) > CLIP zero-shot > heuristic.
+Movement is decided by the video processor from track displacement; this module
+classifies what a single crop looks like (eating / resting / moving).
+"""
 
 import os
-from typing import Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
+import cv2
 import numpy as np
-from ultralytics import YOLO
-
 
 BEHAVIOR_CLASSES = ["eating", "resting", "moving"]
 
+PROMPTS: Dict[str, List[str]] = {
+    "eating": [
+        "a photo of a cow grazing with its head down",
+        "a photo of a cow eating grass",
+        "a photo of a cow eating hay from a feeder",
+        "a photo of a cow with its muzzle on the ground eating",
+    ],
+    "resting": [
+        "a photo of a cow lying down on the ground",
+        "a photo of a cow resting on the grass",
+        "a photo of a cow standing still with its head up",
+        "a photo of a cow sleeping",
+    ],
+    "moving": [
+        "a photo of a cow walking",
+        "a photo of a cow running",
+    ],
+}
+
 
 class BehaviorClassifier:
-    """Wrapper around YOLOv8-cls for cow behavior classification."""
-
-    def __init__(self, model_path: str) -> None:
-        self.use_heuristic = False
+    def __init__(self, model_path: str, use_clip: bool = True, clip_model: str = "ViT-B-32",
+                 clip_pretrained: str = "openai") -> None:
+        self.mode = "heuristic"
+        self.model = None
 
         if os.path.isfile(model_path):
+            from ultralytics import YOLO
+
             print(f"Loading custom classifier model: {model_path}")
             self.model = YOLO(model_path)
-        else:
-            print(f"Classifier model not found at {model_path}, using heuristic fallback")
-            self.model = None
-            self.use_heuristic = True
+            self.mode = "yolo-cls"
+        elif use_clip:
+            try:
+                self._load_clip(clip_model, clip_pretrained)
+                self.mode = "clip-zero-shot"
+            except Exception as e:  # noqa: BLE001 - keep service up without CLIP
+                print(f"CLIP unavailable ({e}); using heuristic classifier")
 
-        self.loaded = not self.use_heuristic
+        print(f"Behavior classifier mode: {self.mode}")
+        self.loaded = self.mode != "heuristic"
+
+    def _load_clip(self, name: str, pretrained: str) -> None:
+        import open_clip
+        import torch
+
+        model, _, preprocess = open_clip.create_model_and_transforms(name, pretrained=pretrained)
+        model.eval()
+        tokenizer = open_clip.get_tokenizer(name)
+
+        self._torch = torch
+        self._clip = model
+        self._preprocess = preprocess
+        self._prompt_classes: List[str] = []
+        texts: List[str] = []
+        for cls, prompts in PROMPTS.items():
+            for p in prompts:
+                texts.append(p)
+                self._prompt_classes.append(cls)
+
+        with torch.no_grad():
+            feats = model.encode_text(tokenizer(texts))
+            self._text_feats = feats / feats.norm(dim=-1, keepdim=True)
+        self._logit_scale = float(model.logit_scale.exp().item())
+
+    def classify_batch(
+        self, crops: Sequence[np.ndarray], allowed: Optional[Sequence[str]] = None
+    ) -> List[Tuple[str, float]]:
+        """Classify BGR crops. `allowed` restricts the candidate classes."""
+        if not crops:
+            return []
+        if self.mode == "clip-zero-shot":
+            return self._clip_classify(crops, allowed)
+        if self.mode == "yolo-cls":
+            return [self._yolo_classify(c) for c in crops]
+        return [self._heuristic_classify(c) for c in crops]
 
     def classify(self, crop: np.ndarray) -> Tuple[str, float]:
-        """Classify the behavior of a cow from a cropped image."""
-        if self.use_heuristic:
-            return self._heuristic_classify(crop)
+        return self.classify_batch([crop])[0]
 
+    def _clip_classify(
+        self, crops: Sequence[np.ndarray], allowed: Optional[Sequence[str]]
+    ) -> List[Tuple[str, float]]:
+        from PIL import Image
+
+        torch = self._torch
+        images = torch.stack([
+            self._preprocess(Image.fromarray(cv2.cvtColor(c, cv2.COLOR_BGR2RGB))) for c in crops
+        ])
+        with torch.no_grad():
+            img_feats = self._clip.encode_image(images)
+            img_feats = img_feats / img_feats.norm(dim=-1, keepdim=True)
+            probs = (self._logit_scale * img_feats @ self._text_feats.T).softmax(dim=-1).numpy()
+
+        classes = list(allowed) if allowed else BEHAVIOR_CLASSES
+        results: List[Tuple[str, float]] = []
+        for row in probs:
+            scores = {c: 0.0 for c in classes}
+            for p, cls in zip(row, self._prompt_classes):
+                if cls in scores:
+                    scores[cls] += float(p)
+            total = sum(scores.values()) or 1.0
+            label = max(scores, key=scores.get)
+            results.append((label, scores[label] / total))
+        return results
+
+    def _yolo_classify(self, crop: np.ndarray) -> Tuple[str, float]:
         results = self.model(crop, verbose=False)
-
         if results and results[0].probs is not None:
             probs = results[0].probs
             top_idx = int(probs.top1)
-            top_conf = float(probs.top1conf.item())
-            names = results[0].names
-
-            if top_idx in names:
-                label = names[top_idx]
-                if label in BEHAVIOR_CLASSES:
-                    return label, top_conf
-
-            if top_idx < len(BEHAVIOR_CLASSES):
-                return BEHAVIOR_CLASSES[top_idx], top_conf
-
+            label = results[0].names.get(top_idx, "")
+            if label in BEHAVIOR_CLASSES:
+                return label, float(probs.top1conf.item())
         return self._heuristic_classify(crop)
 
     def _heuristic_classify(self, crop: np.ndarray) -> Tuple[str, float]:
-        """Classify behavior using simple image heuristics as a placeholder."""
+        """Last-resort fallback: a lying cow's box is wide and low."""
         h, w = crop.shape[:2]
-        aspect_ratio = w / max(h, 1)
-
-        gray = crop.mean() if crop.size > 0 else 128.0
-
+        if h == 0 or w == 0:
+            return "resting", 0.4
+        aspect_ratio = w / h
+        if aspect_ratio > 2.0:
+            return "resting", 0.5
         if aspect_ratio > 1.4:
-            return "eating", 0.55
-        elif aspect_ratio < 0.8:
-            return "moving", 0.50
-
-        if gray < 100:
-            return "resting", 0.50
-        elif gray > 160:
             return "eating", 0.45
-        else:
-            return "moving", 0.45
+        return "resting", 0.4
