@@ -34,7 +34,7 @@ PROMPTS: Dict[str, List[str]] = {
 
 
 class BehaviorClassifier:
-    def __init__(self, model_path: str, use_clip: bool = True, clip_model: str = "ViT-B-32",
+    def __init__(self, model_path: str, use_clip: bool = True, clip_model: str = "ViT-B-32-quickgelu",
                  clip_pretrained: str = "openai") -> None:
         self.mode = "heuristic"
         self.model = None

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     torch_threads: int = 4
 
     use_clip: bool = True
-    clip_model: str = "ViT-B-32"
+    clip_model: str = "ViT-B-32-quickgelu"
     clip_pretrained: str = "openai"
 
     # Body-heights per second above which a cow is considered to be walking.

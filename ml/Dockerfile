@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Bake model weights into the image so startup never needs the network.
 RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')" && \
-    python -c "import open_clip; open_clip.create_model_and_transforms('ViT-B-32', pretrained='openai')"
+    python -c "import open_clip; open_clip.create_model_and_transforms('ViT-B-32-quickgelu', pretrained='openai')"
 
 COPY . .
 
